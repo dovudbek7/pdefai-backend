@@ -7,7 +7,7 @@ User = get_user_model()
 class RegisterSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=150)
     email = serializers.EmailField()
-    password = serializers.CharField(min_length=6, write_only=True)
+    password = serializers.CharField(min_length=4, write_only=True)
 
     def validate_email(self, value):
         if User.objects.filter(username=value).exists():
