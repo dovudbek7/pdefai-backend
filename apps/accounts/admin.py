@@ -1,11 +1,14 @@
 from django.contrib import admin
 from django.contrib.auth import get_user_model
+from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
 User = get_user_model()
 
+admin.site.unregister(User)
+
 
 @admin.register(User)
-class UserAdmin(admin.ModelAdmin):
+class UserAdmin(BaseUserAdmin):
     list_display = ['id', 'username', 'first_name', 'date_joined', 'is_active']
     search_fields = ['username', 'first_name']
     ordering = ['-date_joined']
