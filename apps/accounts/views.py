@@ -1,12 +1,18 @@
-from django.contrib.auth import authenticate
+import re
+from datetime import datetime, timedelta, timezone
+
+from django.contrib.auth import authenticate, get_user_model
 from rest_framework import serializers, status
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from drf_spectacular.utils import extend_schema, OpenApiResponse, inline_serializer
 
+from .models import LoginLog
 from .serializers import RegisterSerializer, UserSerializer
+
+User = get_user_model()
 
 SAMPLE_CONTENT = """<h1>Oydin tunda maktub</h1>
 <p>Shahar hech qachon to'liq uxlamaydi. Hatto yarim tunda ham — kimdir derazadan tashqariga qaraydi, kimdir ko'chada yolg'iz yuradi, kimdir sovuq choy ustida o'tirib, yozilmagan maktubni o'ylaydi. Lola ham shunday odamlardan biriydi.</p>
@@ -63,6 +69,19 @@ def _auth_response_serializer(name):
     })
 
 
+def _get_client_ip(request):
+    forwarded = request.META.get('HTTP_X_FORWARDED_FOR')
+    if forwarded:
+        return forwarded.split(',')[0].strip()
+    return request.META.get('REMOTE_ADDR')
+
+
+def _word_count(html):
+    text = re.sub(r'<[^>]+>', ' ', html or '')
+    words = text.split()
+    return len(words)
+
+
 @extend_schema(tags=['Auth'])
 class RegisterView(APIView):
     permission_classes = [AllowAny]
@@ -112,6 +131,8 @@ class LoginView(APIView):
                 {'detail': 'Email yoki parol noto\'g\'ri.'},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
+        # Record login
+        LoginLog.objects.create(user=user, ip_address=_get_client_ip(request))
         return Response({
             **_tokens_for_user(user),
             'user': UserSerializer(user).data,
@@ -128,3 +149,72 @@ class MeView(APIView):
     )
     def get(self, request):
         return Response(UserSerializer(request.user).data)
+
+
+@extend_schema(tags=['Dashboard'])
+class DashboardAnalyticsView(APIView):
+    permission_classes = [IsAdminUser]
+
+    @extend_schema(summary='To\'liq analitika (faqat admin)')
+    def get(self, request):
+        now = datetime.now(timezone.utc)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_ago = now - timedelta(days=7)
+
+        users = (
+            User.objects
+            .prefetch_related('projects', 'login_logs')
+            .order_by('-date_joined')
+        )
+
+        logins_today = LoginLog.objects.filter(timestamp__gte=today_start).count()
+        active_week = (
+            LoginLog.objects
+            .filter(timestamp__gte=week_ago)
+            .values('user')
+            .distinct()
+            .count()
+        )
+
+        from apps.projects.models import Project
+        total_projects = Project.objects.count()
+
+        users_data = []
+        for u in users:
+            projects = list(u.projects.all())
+            logs = list(u.login_logs.all()[:20])
+            last_log = logs[0] if logs else None
+
+            users_data.append({
+                'id': str(u.id),
+                'name': u.first_name or u.username,
+                'email': u.username,
+                'is_staff': u.is_staff,
+                'date_joined': u.date_joined.isoformat(),
+                'last_login': last_log.timestamp.isoformat() if last_log else None,
+                'projects_count': len(projects),
+                'projects': [
+                    {
+                        'id': str(p.id),
+                        'name': p.name,
+                        'created_at': p.created_at.isoformat(),
+                        'updated_at': p.updated_at.isoformat(),
+                        'word_count': _word_count(p.content),
+                    }
+                    for p in projects
+                ],
+                'login_logs': [
+                    {'timestamp': log.timestamp.isoformat()}
+                    for log in logs
+                ],
+            })
+
+        return Response({
+            'summary': {
+                'total_users': users.count(),
+                'total_projects': total_projects,
+                'logins_today': logins_today,
+                'active_users_week': active_week,
+            },
+            'users': users_data,
+        })

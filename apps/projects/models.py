@@ -15,6 +15,7 @@ class Project(models.Model):
     numbering = models.JSONField(default=dict)
     typography = models.JSONField(default=dict)
     content = models.TextField(default='')
+    border = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.urls import path, include
 from rest_framework_simplejwt.views import TokenRefreshView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
+from apps.accounts.views import DashboardAnalyticsView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -12,6 +13,9 @@ urlpatterns = [
 
     # Projects
     path('api/projects/', include('apps.projects.urls')),
+
+    # Admin analytics
+    path('api/dashboard/analytics/', DashboardAnalyticsView.as_view(), name='analytics'),
 
     # Docs
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
