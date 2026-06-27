@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.urls import path, include
 from rest_framework_simplejwt.views import TokenRefreshView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
-from apps.accounts.views import DashboardAnalyticsView
+from apps.accounts.views import DashboardAnalyticsView, analytics_html
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -16,6 +16,7 @@ urlpatterns = [
 
     # Admin analytics
     path('api/dashboard/analytics/', DashboardAnalyticsView.as_view(), name='analytics'),
+    path('panel/', analytics_html, name='analytics_html'),
 
     # Docs
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),

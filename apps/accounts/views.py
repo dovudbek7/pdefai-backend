@@ -2,6 +2,8 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from django.contrib.auth import authenticate, get_user_model
+from django.contrib.admin.views.decorators import staff_member_required
+from django.shortcuts import render
 from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
@@ -218,3 +220,85 @@ class DashboardAnalyticsView(APIView):
             },
             'users': users_data,
         })
+
+
+def _fmt_date(dt):
+    if dt is None:
+        return None
+    return dt.strftime('%d.%m.%Y')
+
+
+def _fmt_datetime(dt):
+    if dt is None:
+        return None
+    return dt.strftime('%d.%m.%Y %H:%M')
+
+
+def _initials(name):
+    parts = name.strip().split()
+    if len(parts) >= 2:
+        return parts[0][0] + parts[1][0]
+    return (parts[0][0] if parts and parts[0] else '?')
+
+
+@staff_member_required(login_url='/admin/login/')
+def analytics_html(request):
+    from apps.projects.models import Project
+
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_ago = now - timedelta(days=7)
+
+    User = get_user_model()
+    users_qs = User.objects.prefetch_related('projects', 'login_logs').order_by('-date_joined')
+
+    logins_today = LoginLog.objects.filter(timestamp__gte=today_start).count()
+    active_week = (
+        LoginLog.objects.filter(timestamp__gte=week_ago)
+        .values('user').distinct().count()
+    )
+    total_projects = Project.objects.count()
+    total_users = users_qs.count()
+
+    users = []
+    for u in users_qs:
+        name = u.first_name or u.username
+        logs = list(u.login_logs.all()[:20])
+        last_log = logs[0] if logs else None
+        projects = list(u.projects.all())
+
+        users.append({
+            'name': name,
+            'email': u.username,
+            'is_staff': u.is_staff,
+            'initials': _initials(name).upper(),
+            'date_joined': _fmt_date(u.date_joined),
+            'last_login': _fmt_datetime(last_log.timestamp) if last_log else None,
+            'projects_count': len(projects),
+            'login_count': len(logs),
+            'projects': [
+                {
+                    'name': p.name,
+                    'word_count': _word_count(p.content),
+                    'updated_at': _fmt_date(p.updated_at),
+                }
+                for p in projects
+            ],
+            'login_logs': [
+                {'ts': _fmt_datetime(log.timestamp)}
+                for log in logs
+            ],
+        })
+
+    summary_cards = [
+        {'label': 'Foydalanuvchilar', 'value': total_users, 'sub': "jami ro'yxatdan o'tgan"},
+        {'label': 'Kitoblar', 'value': total_projects, 'sub': 'jami yaratilgan'},
+        {'label': 'Bugungi kirish', 'value': logins_today, 'sub': 'login soni bugun'},
+        {'label': 'Faol (7 kun)', 'value': active_week, 'sub': "so'nggi haftada kirgan"},
+    ]
+
+    return render(request, 'analytics.html', {
+        'today': now.strftime('%d %B %Y'),
+        'summary_cards': summary_cards,
+        'users': users,
+    })
